@@ -18,24 +18,84 @@ source "${SCRIPT_DIR}/version_manager.sh"
 
 # 检查安装依赖
 check_install_dependencies() {
-    local missing_deps=()
+    local missing_commands=()
+    local missing_packages=()
 
-    # 检查必需的构建工具
-    local deps=("wget" "tar" "make" "gcc" "g++" "zlib1g-dev" "libssl-dev" "libffi-dev" "libbz2-dev" "libreadline-dev" "libsqlite3-dev")
-    for dep in "${deps[@]}"; do
-        if ! dpkg -l | grep -q "^ii  $dep"; then
-            missing_deps+=("$dep")
+    # 检查必需的命令（二进制工具）
+    local commands=("wget" "tar" "make" "gcc" "g++")
+    for cmd in "${commands[@]}"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing_commands+=("$cmd")
         fi
     done
 
-    if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        print_error "Missing required dependencies: ${missing_deps[*]}"
-        print_info "Please run the following command to install dependencies:"
-        echo "sudo apt update && sudo apt install -y ${missing_deps[*]}"
+    # 检查必需的系统包（开发库和运行时库）
+    # 同时检查多个可能的包名变体
+    local package_checks=(
+        "zlib1g-dev:zlib1g"           # 压缩库
+        "libssl-dev:libssl3"          # SSL库
+        "libffi-dev:libffi8"          # 外部函数接口
+        "libbz2-dev:libbz2-1.0"       # bzip2压缩
+        "libreadline-dev:libreadline8" # GNU readline
+        "libsqlite3-dev:libsqlite3-0"  # SQLite数据库
+    )
+
+    for pkg_check in "${package_checks[@]}"; do
+        local dev_pkg="${pkg_check%%:*}"
+        local runtime_pkg="${pkg_check#*:}"
+        local found=false
+
+        # 检查开发包（支持带架构后缀的包名，如 libssl-dev:amd64）
+        local dpkg_output
+        dpkg_output=$(dpkg -l 2>/dev/null)
+
+        if echo "$dpkg_output" | grep -q "^ii  $dev_pkg"; then
+            found=true
+        elif echo "$dpkg_output" | grep -q "^ii  $dev_pkg:"; then
+            found=true
+        fi
+
+        # 如果没找到，尝试运行时包（有些系统可能只有运行时包）
+        if [[ "$found" == "false" ]] && echo "$dpkg_output" | grep -q "^ii  $runtime_pkg"; then
+            print_warning "Found runtime package $runtime_pkg but missing dev package $dev_pkg"
+            found=true
+        fi
+
+        if [[ "$found" == "false" ]]; then
+            missing_packages+=("$dev_pkg")
+        fi
+    done
+
+    # 如果有任何缺失的依赖，显示错误并退出
+    if [[ ${#missing_commands[@]} -gt 0 ]] || [[ ${#missing_packages[@]} -gt 0 ]]; then
+        print_error "Missing required dependencies for Python compilation:"
+
+        if [[ ${#missing_commands[@]} -gt 0 ]]; then
+            print_error "Missing commands: ${missing_commands[*]}"
+        fi
+
+        if [[ ${#missing_packages[@]} -gt 0 ]]; then
+            print_error "Missing development packages: ${missing_packages[*]}"
+        fi
+
+        print_info "Please install missing dependencies:"
+        echo ""
+        echo "# Update package list"
+        echo "sudo apt update"
+        echo ""
+        echo "# Install missing commands and packages"
+        local all_missing=("${missing_commands[@]}" "${missing_packages[@]}")
+        echo "sudo apt install -y ${all_missing[*]}"
+        echo ""
+        echo "# For other Linux distributions:"
+        echo "# CentOS/RHEL: sudo yum install -y make gcc gcc-c++ zlib-devel openssl-devel libffi-devel bzip2-devel readline-devel sqlite-devel wget tar"
+        echo "# Fedora: sudo dnf install -y make gcc gcc-c++ zlib-devel openssl-devel libffi-devel bzip2-devel readline-devel sqlite-devel wget tar"
+        echo "# Arch Linux: sudo pacman -S make gcc zlib openssl libffi bzip2 readline sqlite wget tar"
+
         return 1
     fi
 
-    print_success "Installation dependency check passed"
+    print_success "All installation dependencies are satisfied"
     return 0
 }
 
@@ -245,7 +305,10 @@ install_python_from_source() {
     trap "cleanup_temp_files '$temp_dir'; if [[ ! -f '$success_flag_file' ]]; then cleanup_failed_installation '$install_path'; fi; rm -f '$success_flag_file'" EXIT
 
     # 检查依赖
-    check_install_dependencies
+    if ! check_install_dependencies; then
+        print_error "Dependency check failed. Aborting installation."
+        return 1
+    fi
 
     # 检查Installation path
     if [[ -d "$install_path" ]] && ! is_directory_empty "$install_path"; then

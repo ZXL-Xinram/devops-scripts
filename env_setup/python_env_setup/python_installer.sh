@@ -38,6 +38,7 @@ check_install_dependencies() {
         "libbz2-dev:libbz2-1.0"       # bzip2压缩
         "libreadline-dev:libreadline8" # GNU readline
         "libsqlite3-dev:libsqlite3-0"  # SQLite数据库
+        "libexpat1-dev:libexpat1"     # XML解析库 (for pyexpat)
     )
 
     for pkg_check in "${package_checks[@]}"; do
@@ -163,16 +164,47 @@ configure_python_build() {
     # --enable-optimizations: 启用优化
     # --with-ensurepip=install: 安装pip
     # --disable-shared: 使用静态库，避免运行时动态链接问题
-    if ! ./configure \
+    # 添加明确的包含路径和库路径以确保找到expat
+    # 尝试不同的配置策略来解决pyexpat问题
+    local configure_success=false
+
+    # 策略1: 使用系统expat和明确的路径
+    print_info "Trying configuration with system expat..."
+    if ./configure \
         --prefix="$install_prefix" \
         --enable-optimizations \
         --with-ensurepip=install \
         --disable-shared \
         --with-system-ffi \
         --with-system-expat \
-        CFLAGS="-O2" \
-        CXXFLAGS="-O2"; then
+        --enable-loadable-sqlite-extensions \
+        CFLAGS="-O2 -I/usr/include -I/usr/include/x86_64-linux-gnu" \
+        CPPFLAGS="-I/usr/include -I/usr/include/x86_64-linux-gnu" \
+        LDFLAGS="-L/usr/lib -L/usr/lib/x86_64-linux-gnu -Wl,--strip-all" 2>&1; then
+        configure_success=true
+        print_success "Configuration with system expat succeeded"
+    else
+        print_warning "Configuration with system expat failed, trying builtin expat..."
 
+        # 策略2: 使用内置expat
+        if ./configure \
+            --prefix="$install_prefix" \
+            --enable-optimizations \
+            --with-ensurepip=install \
+            --disable-shared \
+            --with-system-ffi \
+            --without-system-expat \
+            --enable-loadable-sqlite-extensions \
+            CFLAGS="-O2" \
+            CXXFLAGS="-O2" 2>&1; then
+            configure_success=true
+            print_success "Configuration with builtin expat succeeded"
+        else
+            print_error "All configuration attempts failed"
+        fi
+    fi
+
+    if [[ "$configure_success" == "false" ]]; then
         print_error "Python configuration failed"
         return 1
     fi
@@ -198,6 +230,33 @@ compile_python() {
 }
 
 # Installing Python
+# 手动安装pip（备用方案）
+install_pip_manually() {
+    local python_exe="$1"
+
+    print_info "Attempting manual pip installation..."
+
+    # 下载get-pip.py
+    local get_pip_url="https://bootstrap.pypa.io/get-pip.py"
+    local get_pip_file="/tmp/get-pip.py"
+
+    if ! wget -q -O "$get_pip_file" "$get_pip_url"; then
+        print_warning "Failed to download get-pip.py"
+        return 1
+    fi
+
+    # 使用Python安装pip
+    if "$python_exe" "$get_pip_file" --user 2>&1; then
+        print_success "Manual pip installation successful"
+        rm -f "$get_pip_file"
+        return 0
+    else
+        print_warning "Manual pip installation failed"
+        rm -f "$get_pip_file"
+        return 1
+    fi
+}
+
 install_python() {
     local source_dir="$1"
 
@@ -205,9 +264,28 @@ install_python() {
 
     cd "$source_dir"
 
-    if ! make install; then
-        print_error "Python installation failed"
-        return 1
+    # 捕获make install的输出以便分析错误
+    local output
+    if ! output=$(make install 2>&1); then
+        # 检查是否是ensurepip相关的错误
+        if echo "$output" | grep -q "pyexpat\|ensurepip\|ModuleNotFoundError"; then
+            print_warning "ensurepip failed (possibly due to pyexpat issue), attempting manual pip installation..."
+
+            # 获取Python可执行文件路径（即使安装不完整）
+            local python_exe="$install_path/bin/python3"
+            if [[ -x "$python_exe" ]] && install_pip_manually "$python_exe"; then
+                print_success "Python installation completed with manual pip installation"
+                return 0
+            else
+                print_error "Both ensurepip and manual pip installation failed"
+                echo "Installation output: $output" >&2
+                return 1
+            fi
+        else
+            print_error "Python installation failed"
+            echo "Installation output: $output" >&2
+            return 1
+        fi
     fi
 
     print_success "Python installation completed"

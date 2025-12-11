@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# Python环境管理工具 - 包装脚本
+# 作者: DevOps Scripts Team
+# 描述: Python环境管理工具的统一入口
+
+set -euo pipefail
+
+# =============================================================================
+# 常量定义
+# =============================================================================
+
+# 项目配置文件
+readonly CONFIG_DIR="${HOME}/.devops-scripts"
+readonly PROJECT_PATH_FILE="${CONFIG_DIR}/.devops-scripts-path"
+
+# 主脚本相对路径（相对于项目根目录）
+readonly MAIN_SCRIPT_REL_PATH="env_setup/python_env_setup/python_env_manager.sh"
+
+# =============================================================================
+# 工具函数
+# =============================================================================
+
+# 显示rror消息
+print_error() {
+    echo -e "\033[0;31m[ERROR]\033[0m $*" >&2
+}
+
+# 获取项目根目录
+get_project_root() {
+    if [[ ! -f "$PROJECT_PATH_FILE" ]]; then
+        print_error "Project not initialized. Please run ./init.sh in project root directory first to initialize."
+        exit 1
+    fi
+
+    local project_root
+    project_root=$(cat "$PROJECT_PATH_FILE")
+
+    if [[ ! -d "$project_root" ]]; then
+        print_error "Project root directory does not exist: $project_root"
+        print_error "Please re-run ./init.sh script to initialize."
+        exit 1
+    fi
+
+    echo "$project_root"
+}
+
+# 主函数
+main() {
+    # 获取项目根目录
+    local project_root
+    project_root=$(get_project_root)
+
+    # 构建主脚本完整路径
+    local main_script="${project_root}/${MAIN_SCRIPT_REL_PATH}"
+
+    if [[ ! -f "$main_script" ]]; then
+        print_error "Main script file does not exist: $main_script"
+        print_error "Project may be corrupted. Please re-clone or repair the project structure."
+        exit 1
+    fi
+
+    # 调用实际的主脚本，传入启动路由信息
+    exec "$main_script" --start-route "$0" "$@"
+}
+
+# 脚本入口
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

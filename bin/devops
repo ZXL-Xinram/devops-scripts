@@ -1,0 +1,106 @@
+#!/bin/bash
+
+# DevOps Scripts - 统一工具入口
+# 作者: DevOps Scripts Team
+# 描述: 提供所有DevOps工具的统一入口
+
+set -euo pipefail
+
+# =============================================================================
+# 常量定义
+# =============================================================================
+
+# 项目配置文件
+readonly CONFIG_DIR="${HOME}/.devops-scripts"
+readonly PROJECT_PATH_FILE="${CONFIG_DIR}/.devops-scripts-path"
+
+# =============================================================================
+# 工具函数
+# =============================================================================
+
+# 显示rror消息
+print_error() {
+    echo -e "\033[0;31m[ERROR]\033[0m $*" >&2
+}
+
+# 获取项目根目录
+get_project_root() {
+    if [[ ! -f "$PROJECT_PATH_FILE" ]]; then
+        print_error "Project not initialized。lease run in project root directory first ./init.sh to initialize。"
+        exit 1
+    fi
+
+    local project_root
+    project_root=$(cat "$PROJECT_PATH_FILE")
+
+    if [[ ! -d "$project_root" ]]; then
+        print_error "Project root directory does not exist: $project_root"
+        print_error "lease re-run the ./init.sh 脚本to initialize。"
+        exit 1
+    fi
+
+    echo "$project_root"
+}
+
+# 显示帮助信息
+show_help() {
+    cat << EOF
+DevOps Scripts - 统一工具入口
+
+用法:
+    devops <工具名> [参数...]
+
+可用工具:
+    python-env-manager    Python环境管理工具
+                         用于安装、激活、管理多个Python版本
+
+    help                 显示此帮助信息
+
+示例:
+    # Python环境管理
+    devops python-env-manager --list
+    devops python-env-manager --install --version 3.11
+
+    # 显示帮助
+    devops help
+
+或者直接使用工具脚本:
+    ./bin/python-env-manager --help
+
+EOF
+}
+
+# 主函数
+main() {
+    # 获取项目根目录
+    local project_root
+    project_root=$(get_project_root)
+
+    if [[ $# -eq 0 ]]; then
+        show_help
+        exit 0
+    fi
+
+    local tool="$1"
+    shift
+
+    case "$tool" in
+        python-env-manager)
+            exec "${project_root}/bin/python-env-manager" "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            echo "rror: Unknown tool '$tool'"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# 脚本入口
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

@@ -95,6 +95,39 @@ validate_project_structure() {
 # 初始化函数
 # =============================================================================
 
+# 创建bin软连接
+create_bin_symlink() {
+    local project_root="$1"
+    local bin_symlink="${CONFIG_DIR}/bin"
+
+    # 检查软连接是否已经存在且指向正确路径
+    if [[ -L "$bin_symlink" ]]; then
+        local current_target
+        current_target=$(readlink "$bin_symlink")
+        if [[ "$current_target" == "${project_root}/bin" ]]; then
+            print_info "Bin symlink already exists and points to correct path: $bin_symlink"
+            return 0
+        else
+            print_warning "Bin symlink exists but points to different path: $current_target"
+            print_info "Updating symlink to: ${project_root}/bin"
+            rm "$bin_symlink"
+        fi
+    elif [[ -e "$bin_symlink" ]]; then
+        print_error "A file or directory already exists at $bin_symlink but it's not a symlink"
+        print_info "Please remove or backup this file/directory first"
+        return 1
+    fi
+
+    # 创建软连接
+    if ln -s "${project_root}/bin" "$bin_symlink"; then
+        print_success "Created bin symlink: $bin_symlink -> ${project_root}/bin"
+        return 0
+    else
+        print_error "Failed to create bin symlink"
+        return 1
+    fi
+}
+
 # 初始化项目配置
 init_project_config() {
     local project_root
@@ -105,7 +138,7 @@ init_project_config() {
 
     # 验证项目结构
     if ! validate_project_structure "$project_root"; then
-        print_error "项目结构验证失败，请确保所有文件都存在"
+        print_error "Project structure validation failed, please ensure all files exist"
         return 1
     fi
 
@@ -113,22 +146,33 @@ init_project_config() {
     ensure_directory "$CONFIG_DIR"
 
     # 检查是否已经初始化
+    local need_path_update=false
     if [[ -f "$PROJECT_PATH_FILE" ]]; then
         local existing_path
         existing_path=$(cat "$PROJECT_PATH_FILE")
         if [[ "$existing_path" == "$project_root" ]]; then
-            print_warning "项目已经初始化，路径: $existing_path"
-            print_info "如果需要重新初始化，请先删除 $PROJECT_PATH_FILE 文件"
-            return 0
+            print_warning "Project already initialized, path: $existing_path"
+            print_info "Checking and updating necessary configurations..."
         else
-            print_warning "发现不同的项目路径配置: $existing_path"
-            print_info "将更新为新路径: $project_root"
+            print_warning "Found different project path configuration: $existing_path"
+            print_info "Updating to new path: $project_root"
+            need_path_update=true
         fi
+    else
+        need_path_update=true
     fi
 
-    # 写入项目路径
-    echo "$project_root" > "$PROJECT_PATH_FILE"
-    print_success "Project path saved到: $PROJECT_PATH_FILE"
+    # 更新项目路径（如果需要）
+    if [[ "$need_path_update" == "true" ]]; then
+        echo "$project_root" > "$PROJECT_PATH_FILE"
+        print_success "Project path saved to: $PROJECT_PATH_FILE"
+    fi
+
+    # 创建bin软连接（总是检查）
+    if ! create_bin_symlink "$project_root"; then
+        print_error "Failed to create bin symlink"
+        return 1
+    fi
 
     # 设置可执行权限
     print_info "Setting tool script execution permissions..."
@@ -142,28 +186,34 @@ init_project_config() {
     echo "  ${project_root}/bin/devops --help"
     echo "  ${project_root}/bin/python-env-manager --help"
     echo ""
-    echo "或者将其添加到PATH环境变量中以全局使用。"
+    echo "Or use the convenient path:"
+    echo "  ${CONFIG_DIR}/bin/devops --help"
+    echo "  ${CONFIG_DIR}/bin/python-env-manager --help"
+    echo ""
+    echo "Or add it to PATH environment variable for global use."
 }
 
 # 显示帮助信息
 show_help() {
     cat << EOF
-DevOps Scripts - 初始化脚本
+DevOps Scripts - Initialization Script
 
-用法:
+Usage:
     ./init.sh
 
-描述:
-    Initializing DevOps Scripts project，设置必要的配置和权限。
+Description:
+    Initialize DevOps Scripts project, set up necessary configurations and permissions.
 
-    此脚本将:
-    1. 验证项目结构完整性
-    2. 将Project root directory路径保存到 ~/.devops-scripts/.devops-scripts-path
-    3. 设置所有脚本的执行权限
+    This script will:
+    1. Verify project structure integrity
+    2. Save project root directory path to ~/.devops-scripts/.devops-scripts-path
+    3. Create ~/.devops-scripts/bin symlink pointing to project bin directory
+    4. Set execution permissions for all scripts
 
-注意:
-    请在Project root directory下运行此脚本。
-    如果项目被移动，请重新运行此脚本进行初始化。
+Notes:
+    Please run this script in the project root directory.
+    If the project is moved, please re-run this script for initialization.
+    After initialization, you can conveniently access all tools via ~/.devops-scripts/bin/.
 
 EOF
 }
@@ -177,7 +227,7 @@ main() {
                 exit 0
                 ;;
             *)
-                print_error "未知参数: $1"
+                print_error "Unknown parameter: $1"
                 show_help
                 exit 1
                 ;;

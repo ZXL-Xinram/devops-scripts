@@ -68,7 +68,6 @@ activate_python_env() {
 #!/bin/bash
 # Python $version environment activation
 export PATH="$path/bin:\$PATH"
-export PYTHONHOME="$path"
 export LD_LIBRARY_PATH="$path/lib:\$LD_LIBRARY_PATH"
 echo "Python $version environment activated"
 EOF
@@ -77,7 +76,6 @@ EOF
     cat > "$deactivate_script" << EOF
 #!/bin/bash
 # Python $version environment deactivation
-unset PYTHONHOME
 export PATH=\$(echo \$PATH | sed 's|$path/bin:||g')
 unset LD_LIBRARY_PATH
 echo "Python $version environment deactivated"
@@ -85,6 +83,15 @@ EOF
 
     chmod +x "$activate_script"
     chmod +x "$deactivate_script"
+
+    # 创建符号链接以实现完全隔离
+    local bin_dir="${path}/bin"
+    if [[ ! -L "${bin_dir}/python" ]]; then
+        ln -s python3 "${bin_dir}/python" 2>/dev/null || true
+    fi
+    if [[ ! -L "${bin_dir}/pip" ]]; then
+        ln -s pip3 "${bin_dir}/pip" 2>/dev/null || true
+    fi
 
     # 输出简洁明了的命令提示
     print_success "Python environment ready!"

@@ -53,6 +53,7 @@ Commands:
 
     --validate             Validate all environments
     --cleanup              Clean up invalid environments
+    --mirrors              Show Python pip mirror sources
 
     --list-versions        List available Python versions from config
     --update-verlist       Update Python version list from python.org
@@ -95,6 +96,9 @@ Examples:
 
     # Clean up invalid environments
     $cmd_prefix --cleanup
+
+    # Show pip mirror sources
+    $cmd_prefix --mirrors
 
 Configuration file: ${DEFAULT_CONFIG_FILE}
 Default environment directory: ${DEFAULT_PYTHON_ENV_DIR}
@@ -154,6 +158,10 @@ parse_arguments() {
                 ;;
             --cleanup)
                 command="cleanup"
+                shift
+                ;;
+            --mirrors)
+                command="mirrors"
                 shift
                 ;;
             --list-versions)
@@ -264,6 +272,9 @@ execute_command() {
             ;;
         cleanup)
             cleanup_invalid_environments
+            ;;
+        mirrors)
+            show_pip_mirrors
             ;;
         list-versions)
             list_available_versions
